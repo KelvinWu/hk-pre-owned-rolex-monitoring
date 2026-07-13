@@ -94,3 +94,10 @@ def test_v010_release_candidate_uses_mit_and_fixed_repository_url():
     assert package["project"]["license"] == "MIT"
     assert '__version__ = "0.1.0"' in version_text
     assert "https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/tree/v0.1.0/" in readme
+
+
+def test_workflows_use_node24_compatible_setup_python():
+    for relative in (".github/workflows/ci.yml", ".github/workflows/release.yml"):
+        workflow = (REPOSITORY_ROOT / relative).read_text()
+        assert "actions/setup-python@v6" in workflow
+        assert "actions/setup-python@v5" not in workflow
