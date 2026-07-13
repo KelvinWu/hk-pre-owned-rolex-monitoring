@@ -71,7 +71,7 @@ jobs:
           python -m build "${SKILL_DIR}" --outdir "${RUNNER_TEMP}/dist"
       - name: Clean-install wheel
         run: |
-          python -m venv "${RUNNER_TEMP}/clean"
-          "${RUNNER_TEMP}/clean/bin/python" -m pip install "${RUNNER_TEMP}"/dist/*.whl
-          "${RUNNER_TEMP}/clean/bin/inventoryctl" skill info --json > "${RUNNER_TEMP}/skill-info.json"
-          "${RUNNER_TEMP}/clean/bin/python" -c 'import json, os; p=json.load(open(os.environ["RUNNER_TEMP"] + "/skill-info.json")); assert p["ok"] and p["result"]["platform_neutral"] is True'
+          WHEEL=$(find "${RUNNER_TEMP}/dist" -maxdepth 1 -name '*.whl' -print -quit)
+          WHEEL_SHA=$(sha256sum "${WHEEL}" | cut -d ' ' -f1)
+          python "${SKILL_DIR}/scripts/bootstrap.py" install --package "${WHEEL}" --sha256 "${WHEEL_SHA}" --runtime-dir "${RUNNER_TEMP}/clean" --state-dir "${RUNNER_TEMP}/state" --json > "${RUNNER_TEMP}/bootstrap-result.json"
+          python -c 'import json, os; p=json.load(open(os.environ["RUNNER_TEMP"] + "/bootstrap-result.json")); assert p["ok"] and p["status"] == "INSTALL_VERIFIED"'

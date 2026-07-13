@@ -96,7 +96,12 @@ def main() -> int:
             "dist",
         ),
     )
-    required = [destination / "SKILL.md", destination / "scripts/inventoryctl.py", destination / "pyproject.toml"]
+    required = [
+        destination / "SKILL.md",
+        destination / "scripts/bootstrap.py",
+        destination / "scripts/inventoryctl.py",
+        destination / "pyproject.toml",
+    ]
     if not all(path.is_file() for path in required):
         print(json.dumps({**result, "ok": False, "status": "ERROR", "error": "安装结构校验失败"}, ensure_ascii=False))
         return 4

@@ -1,6 +1,6 @@
 ---
 name: hk-pre-owned-rolex-monitoring
-description: Monitor Oriental Watch Hong Kong Rolex Certified Pre-Owned listings with verified baselines keyed by Lot_Number_Code; retain listing images for delisting alerts; detect new, removed, price, and detail changes; and compare exact Rolex references plus nearby production years with attested market evidence. Preflight sources, use WatchCharts only with user-owned API credentials and sufficient license, and keep prohibited or unreviewed sources in manual-evidence mode. Use for running or diagnosing this Hong Kong Rolex CPO monitor, image retention, source readiness, Market Packet validation or comparison, Outbox events, backup or restore, and host-neutral runtime plans.
+description: Install, run, or repair a platform-neutral monitor for Oriental Watch Hong Kong Rolex Certified Pre-Owned listings. Preflight Python dependencies and configured package indexes, keep runtime and state outside the Skill directory, retain listing images for delisting alerts, detect new, removed, price, and detail changes with verified baselines keyed by Lot_Number_Code, and compare exact Rolex references plus nearby production years with attested market evidence. Use for runtime bootstrap or diagnosis, Hong Kong Rolex CPO monitoring, image retention, source readiness, Market Packet validation or comparison, Outbox events, backup or restore, and host-neutral runtime plans.
 ---
 
 # HK Pre-owned Rolex Monitoring
@@ -9,10 +9,13 @@ description: Monitor Oriental Watch Hong Kong Rolex Certified Pre-Owned listings
 
 ## 开始
 
-1. 运行 `python scripts/inventoryctl.py skill info --json` 和 `python scripts/inventoryctl.py runtime probe --json`。
-2. 需要行情对比时，先运行 `python scripts/inventoryctl.py market sources --json`，再对目标来源运行 `market source doctor`。
-3. 根据用户意图选择 monitor、market、outbox、backup、restore 或 runtime 操作。
-4. 只依据 CLI JSON、行情证据和已验证的宿主结果报告状态。
+1. 首次安装或修复运行环境时，读取 `references/host-compatibility.md`，先运行 `python scripts/bootstrap.py doctor --network-check download --json`。这个脚本只使用 Python 标准库，可在业务依赖安装前执行。
+2. 默认包源失败时，只报告真实的下载状态。仅接受用户或宿主通过环境变量配置的 `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL`，不得硬编码或静默切换第三方镜像；重新运行 doctor 验证实际依赖下载。
+3. doctor 返回 `READY` 后，使用固定 Release wheel 和校验值运行 `python scripts/bootstrap.py install --package <wheel> --sha256 <sha256> --runtime-dir <runtime-dir> --state-dir <state-dir> --json`。只有 `INSTALL_VERIFIED` 才算安装完成；生产环境不得使用 editable install。
+4. 安装回执显示命令入口不在 PATH 时，使用回执中的绝对路径或 `python -m inventory_sentinel`，不要反复猜测命令位置。
+5. 运行 `python scripts/inventoryctl.py skill info --json` 和 `python scripts/inventoryctl.py runtime probe --json`。
+6. 需要行情对比时，先运行 `python scripts/inventoryctl.py market sources --json`，再对目标来源运行 `market source doctor`。
+7. 根据用户意图选择 monitor、market、outbox、backup、restore 或 runtime 操作；只依据结构化 JSON、行情证据和已验证的宿主结果报告状态。
 
 ## 创建监控
 
@@ -59,6 +62,7 @@ description: Monitor Oriental Watch Hong Kong Rolex Certified Pre-Owned listings
 - `fixture` 和 `unverified` 证据不得进入已验证参考；`verified` 必须包含带时区的核验时间和证据 SHA-256。
 - 不把挂牌价、估值、指数或拍卖结果混称为真实零售成交价。
 - 任务、通知和运行绑定未经宿主重新查询或验证，不得声称完成。
+- 能打开包索引首页不等于依赖可以下载；镜像、安装权限和命令 PATH 必须分别验证。镜像地址中的凭证、查询参数和路径 token 不得进入 JSON、日志或状态。
 - 不绕过 CAPTCHA、登录、访问控制或地区限制；Skill 更新不得删除用户状态。
 
 ## 按需参考

@@ -2,6 +2,19 @@
 
 本项目遵循语义化版本。正式 Release 的变更记录以 GitHub Release 和本文件为准。
 
+## [0.1.1] - 2026-07-14
+
+### Added
+
+- 增加纯标准库 `bootstrap.py`，在业务依赖安装前检查 Python、pip、实际依赖下载、安装权限、PATH 和状态目录。
+- 增加虚拟环境优先、用户目录回退的结构化安装流程，并在完成后验证 `skill info` 与可选的 `runtime probe`。
+- 增加本地 wheel SHA-256 校验、镜像地址脱敏和稳定的 `python -m inventory_sentinel` 回退入口。
+
+### Changed
+
+- 区分默认源超时、配置镜像超时、DNS、TLS、依赖不可用和安装权限错误，不再用包索引首页访问结果代替真实下载检查。
+- 生产安装改为固定 Release wheel，不使用 editable install；正式版本为 `0.1.1`。
+
 ## [0.1.0] - 2026-07-13
 
 ### Added
