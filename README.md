@@ -1,5 +1,9 @@
 # HK Pre-owned Rolex Monitoring
 
+[![CI](https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/actions/workflows/ci.yml/badge.svg)](https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/KelvinWu/hk-pre-owned-rolex-monitoring)](https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 一个平台中立的 Agent Skill，用于监控香港东方表行公开的 Rolex Certified Pre-Owned（CPO）库存，保留商品图片，并用经过来源门禁的市场证据解释价格位置。
 
 > 非官方项目，与 Rolex、东方表行、WatchCharts 或其他数据来源不存在隶属、授权或认可关系。不得使用本项目绕过登录、CAPTCHA、访问控制、地区限制或来源许可。
@@ -7,7 +11,7 @@
 ## 当前状态
 
 - Skill 本体、离线 Fixture、结构化 CLI、状态保护、图片缓存、Market Packet 和来源诊断已经实现。
-- 当前发布候选版本为 `0.1.0`，尚未创建正式 GitHub Release。
+- 当前正式版本为 `0.1.0`；生产安装固定使用 `v0.1.0` tag，不跟随漂移的 `main`。
 - 东方表行 Adapter 已完成技术验证，但公共发布与无人值守自动化仍须完成来源政策复核。
 - 未经真实产品 UI 演练的宿主只标记为结构兼容，不声称已实测。
 
