@@ -31,6 +31,7 @@ def test_same_skill_package_installs_into_host_layout(tmp_path: Path, host: str)
     assert completed.returncode == 0, completed.stderr or completed.stdout
     installed = project / LAYOUTS[host]
     assert (installed / "SKILL.md").is_file()
+    assert (installed / "scripts/bootstrap.py").is_file()
     assert (installed / "scripts/inventoryctl.py").is_file()
     assert (installed / "pyproject.toml").is_file()
 

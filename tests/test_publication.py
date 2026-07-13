@@ -44,6 +44,7 @@ def make_minimal_repository(root: Path) -> Path:
     required = {
         "SKILL.md": "---\nname: hk-pre-owned-rolex-monitoring\n---\n",
         "agents/openai.yaml": "interface: {}\n",
+        "scripts/bootstrap.py": "",
         "scripts/inventoryctl.py": "",
         "pyproject.toml": "",
         "src/inventory_sentinel/version.py": '__version__ = "0.1.0.dev0"\n',
@@ -78,7 +79,24 @@ def test_release_archives_only_version_controlled_skill_files():
     assert "tar -C skills" not in workflow
 
 
-def test_v010_release_candidate_uses_mit_and_fixed_repository_url():
+def test_publication_requires_dependency_free_bootstrap(tmp_path, monkeypatch, capsys):
+    module = load_check_module()
+    skill = make_minimal_repository(tmp_path)
+    (skill / "scripts/bootstrap.py").unlink()
+
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "SKILL", skill)
+    monkeypatch.setattr(module, "VERSION_FILE", skill / "src/inventory_sentinel/version.py")
+    monkeypatch.setattr(sys, "argv", [str(CHECK_SCRIPT), "--mode", "ci"])
+
+    assert module.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    skill_files = next(check for check in payload["checks"] if check["name"] == "skill_files")
+    assert skill_files["ok"] is False
+    assert "scripts/bootstrap.py" in skill_files["detail"]
+
+
+def test_v011_release_uses_mit_and_fixed_release_url():
     license_text = (REPOSITORY_ROOT / "LICENSE").read_text()
     package = tomllib.loads(
         (REPOSITORY_ROOT / "skills/hk-pre-owned-rolex-monitoring/pyproject.toml").read_text()
@@ -92,8 +110,8 @@ def test_v010_release_candidate_uses_mit_and_fixed_repository_url():
     assert license_text.startswith("MIT License\n")
     assert "Copyright (c) 2026 KelvinWu" in license_text
     assert package["project"]["license"] == "MIT"
-    assert '__version__ = "0.1.0"' in version_text
-    assert "https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/tree/v0.1.0/" in readme
+    assert '__version__ = "0.1.1"' in version_text
+    assert "https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/tree/v0.1.1/" in readme
 
 
 def test_workflows_use_node24_compatible_setup_python():
@@ -101,3 +119,10 @@ def test_workflows_use_node24_compatible_setup_python():
         workflow = (REPOSITORY_ROOT / relative).read_text()
         assert "actions/setup-python@v6" in workflow
         assert "actions/setup-python@v5" not in workflow
+
+
+def test_release_workflow_verifies_the_bootstrap_installer():
+    workflow = RELEASE_WORKFLOW.read_text()
+
+    assert "scripts/bootstrap.py" in workflow
+    assert " install --package " in workflow

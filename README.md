@@ -11,7 +11,7 @@
 ## 当前状态
 
 - Skill 本体、离线 Fixture、结构化 CLI、状态保护、图片缓存、Market Packet 和来源诊断已经实现。
-- 当前正式版本为 `0.1.0`；生产安装固定使用 `v0.1.0` tag，不跟随漂移的 `main`。
+- 当前正式版本为 `0.1.1`；生产安装固定使用 `v0.1.1` tag，不跟随漂移的 `main`。
 - 东方表行 Adapter 已完成技术验证，但公共发布与无人值守自动化仍须完成来源政策复核。
 - 未经真实产品 UI 演练的宿主只标记为结构兼容，不声称已实测。
 
@@ -32,16 +32,19 @@
 ```text
 请检查并安装这个 Skill：
 
-https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/tree/v0.1.0/skills/hk-pre-owned-rolex-monitoring
+https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/tree/v0.1.1/skills/hk-pre-owned-rolex-monitoring
 
 要求：
 
 1. 先读取 SKILL.md 和仓库 README.md，检查来源与安装要求；
 2. 告诉我准备写入的 Skill 目录、运行环境和文件；
 3. 不使用 sudo，不覆盖其他 Skill，不把用户状态放进 Skill 安装目录；
-4. 安装完整 Skill 及其 Python 运行依赖；
-5. 安装后运行 inventoryctl skill info --json 和 inventoryctl runtime probe --json；
-6. 告诉我是否需要重启或开启新会话，并给出一个首次使用示例。
+4. 生产环境使用该 Release 附带的 wheel 和 SHA256SUMS.txt，不使用 pip install -e；
+5. 安装前检查真实依赖下载、安装权限和命令 PATH；不能用 pypi.org 首页可访问代替包下载验证；
+6. 默认包源超时时，只使用我或宿主配置的可信 PIP_INDEX_URL，不静默选择第三方镜像；
+7. 优先使用持久位置的独立虚拟环境；无法使用时才回退用户目录，不提升系统权限；
+8. 安装后运行 inventoryctl skill info --json 和 inventoryctl runtime probe --json；
+9. 告诉我实际使用的 Python、安装模式、入口路径、状态目录和结构化验收结果。
 ```
 
 这个方案是“发布和分发”，不是托管服务。代码保存在 GitHub；Skill 安装和执行发生在使用者自己的 Agent 环境中。本项目不要求维护者提供公共服务器。
@@ -61,6 +64,29 @@ inventoryctl runtime probe --json
 - `runtime probe` 只证明当前目录可写，不等于已经验证跨重启持久；
 - Skill 安装目录只保存代码；数据库、图片、备份和运行锁位于独立 `state-dir`；
 - 没有请求或打印 Cookie、Token、API Key、真实通知标识或私人状态。
+
+## Bootstrap
+
+从 `0.1.1` 开始，Skill 包内提供一个不依赖 `httpx`、`pydantic`、`PyYAML` 或 `platformdirs` 的预安装入口：
+
+```bash
+python scripts/bootstrap.py doctor \
+  --network-check download \
+  --runtime-dir /persistent/runtime/venv \
+  --state-dir /persistent/state \
+  --json
+
+python scripts/bootstrap.py install \
+  --package /downloads/hk_pre_owned_rolex_monitoring-<version>-py3-none-any.whl \
+  --sha256 <SHA-256> \
+  --runtime-dir /persistent/runtime/venv \
+  --state-dir /persistent/state \
+  --json
+```
+
+`doctor` 真实下载声明的依赖 wheel，并区分默认源超时、已配置镜像超时、DNS、TLS、平台无可用依赖和权限错误。镜像仅从宿主环境的 `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` 读取，输出时只保留 origin。只有 `INSTALL_VERIFIED` 才代表安装和运行入口已经验证。
+
+生产安装固定使用 `v0.1.1` Release 的 wheel 和 `SHA256SUMS.txt`；旧版可回滚到 `v0.1.0`。
 
 ## 宿主兼容性
 

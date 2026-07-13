@@ -100,6 +100,7 @@ def main() -> int:
     skill_files = (
         "SKILL.md",
         "agents/openai.yaml",
+        "scripts/bootstrap.py",
         "scripts/inventoryctl.py",
         "pyproject.toml",
     )

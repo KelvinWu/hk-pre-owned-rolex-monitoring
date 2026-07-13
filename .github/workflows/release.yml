@@ -48,9 +48,10 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/unpacked"
           tar -xzf "${RUNNER_TEMP}/release/${SKILL_NAME}-${GITHUB_REF_NAME#v}.tar.gz" -C "${RUNNER_TEMP}/unpacked"
           agentskills validate "${RUNNER_TEMP}/unpacked/${SKILL_NAME}"
-          python -m venv "${RUNNER_TEMP}/clean"
-          "${RUNNER_TEMP}/clean/bin/python" -m pip install "${RUNNER_TEMP}"/release/*.whl
-          "${RUNNER_TEMP}/clean/bin/inventoryctl" skill info --json
+          WHEEL=$(find "${RUNNER_TEMP}/release" -maxdepth 1 -name '*.whl' -print -quit)
+          WHEEL_SHA=$(sha256sum "${WHEEL}" | cut -d ' ' -f1)
+          python "${RUNNER_TEMP}/unpacked/${SKILL_NAME}/scripts/bootstrap.py" doctor --network-check download --runtime-dir "${RUNNER_TEMP}/clean" --json
+          python "${RUNNER_TEMP}/unpacked/${SKILL_NAME}/scripts/bootstrap.py" install --package "${WHEEL}" --sha256 "${WHEEL_SHA}" --runtime-dir "${RUNNER_TEMP}/clean" --state-dir "${RUNNER_TEMP}/state" --json
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
