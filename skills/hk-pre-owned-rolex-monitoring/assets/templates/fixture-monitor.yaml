@@ -1,0 +1,29 @@
+schema_version: 1
+monitor_id: fixture-lifecycle
+display_name: 离线完整生命周期 Fixture
+enabled: true
+target:
+  adapter: fixture
+  url: ./tests/fixtures/catalog-baseline.json
+  fixture_path: ./tests/fixtures/catalog-baseline.json
+schedule:
+  timezone: Asia/Shanghai
+  jobs:
+    - role: daily-check
+      cron: "0 10 * * *"
+notification:
+  provider: runtime-default
+  recipient: current-user
+  send_no_change_report: true
+  include_images: false
+validation:
+  baseline_samples: 2
+  change_confirmation_samples: 2
+  suspicious_confirmation_samples: 3
+  sample_interval_seconds: 0
+  suspicious_absolute_change: 5
+  suspicious_percentage_change: 10
+state:
+  storage_backend: sqlite
+  image_cache: false
+  backup_enabled: true

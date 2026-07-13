@@ -1,0 +1,39 @@
+name: 功能建议
+description: 建议新的平台中立能力或发布改进
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 请描述用户场景，不要只描述实现方式。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议行为
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      options:
+        - 库存监控
+        - 图片与通知
+        - 行情与来源政策
+        - 备份与恢复
+        - Agent 安装与兼容性
+        - GitHub 发布
+        - 其他
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: 边界确认
+      options:
+        - label: 该建议不要求提交 Secret、私人状态或未经许可的数据。
+          required: true

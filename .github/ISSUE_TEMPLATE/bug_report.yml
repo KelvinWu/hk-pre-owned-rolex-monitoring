@@ -1,0 +1,49 @@
+name: Bug 报告
+description: 使用脱敏信息报告可复现问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不要提交 API Key、Cookie、Token、真实通知标识、用户数据库、下载图片或未脱敏日志。
+  - type: input
+    id: version
+    attributes:
+      label: Skill 版本或 commit
+      placeholder: v0.1.0 或 commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      placeholder: macOS / Linux / Windows，Python 版本，Agent 宿主
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 脱敏复现步骤
+      description: 优先使用 Fixture 和最小命令。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果与脱敏 JSON
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已确认内容不含 Secret、私人状态、真实通知标识或未脱敏数据。
+          required: true

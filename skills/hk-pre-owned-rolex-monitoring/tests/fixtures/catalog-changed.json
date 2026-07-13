@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "stable_id": "LOT-001",
+      "source_id": "LOT-001",
+      "title": "Datejust 41",
+      "reference": "126334",
+      "year": 2020,
+      "price": "90000",
+      "currency": "HKD"
+    },
+    {
+      "stable_id": "LOT-002",
+      "source_id": "LOT-002",
+      "title": "Datejust 41",
+      "reference": "126300",
+      "year": 2021,
+      "price": "108000",
+      "currency": "HKD"
+    },
+    {
+      "stable_id": "LOT-004",
+      "source_id": "LOT-004",
+      "title": "Submariner No-Date",
+      "reference": "124060",
+      "year": 2023,
+      "price": "148000",
+      "currency": "HKD"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "packet_id": "hk-rolex-market-fixture-2026-07-13",
+  "as_of": "2026-07-13T12:00:00+08:00",
+  "comparison": {
+    "max_age_days": 90,
+    "minimum_independent_sources": 2,
+    "reference_band_percent": 5,
+    "year_window": 2
+  },
+  "observations": [
+    {
+      "observation_id": "watchfinder-hk-126334-20260713-a",
+      "source": "watchfinder-hk",
+      "source_listing_id": "replace-with-real-listing-id-a",
+      "rolex_reference": "126334",
+      "region": "HK",
+      "basis": "asking_price",
+      "price_hkd": 98000,
+      "observed_at": "2026-07-13T09:00:00+08:00",
+      "year": 2019,
+      "condition": "excellent",
+      "completeness": "full_set",
+      "evidence_status": "fixture",
+      "acquisition_method": "fixture",
+      "evidence_note": "示例值；使用时必须替换为真实、带年份和成色的挂牌证据"
+    },
+    {
+      "observation_id": "wristcheck-126334-20260713",
+      "source": "wristcheck-listings",
+      "source_listing_id": "replace-with-real-listing-id-b",
+      "rolex_reference": "126334",
+      "region": "HK",
+      "basis": "asking_price",
+      "price_hkd": 102000,
+      "observed_at": "2026-07-13T10:00:00+08:00",
+      "year": 2021,
+      "condition": "very_good",
+      "completeness": "full_set",
+      "evidence_status": "fixture",
+      "acquisition_method": "fixture",
+      "evidence_note": "示例值；使用时必须替换为真实挂牌证据"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hk-pre-owned-rolex-monitoring.local/schemas/runtime-plan-v1.schema.json",
+  "title": "HK Pre-owned Rolex Monitoring Runtime Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "monitor_id", "operations", "notification", "requirements"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "monitor_id": {"type": "string", "minLength": 1},
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "logical_id", "required_capability", "idempotency_key", "parameters", "verification"],
+        "properties": {
+          "op": {"const": "schedule.upsert"},
+          "logical_id": {"type": "string", "minLength": 1},
+          "required_capability": {"const": "scheduler"},
+          "idempotency_key": {"type": "string", "minLength": 1},
+          "parameters": {"type": "object"},
+          "verification": {
+            "type": "object",
+            "required": ["required", "method", "record_external_id"],
+            "properties": {
+              "required": {"const": true},
+              "method": {"const": "host_requery"},
+              "record_external_id": {"const": true}
+            }
+          }
+        }
+      }
+    },
+    "notification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivery", "provider", "recipient", "include_images", "event_types", "list_command", "ack_command"],
+      "properties": {
+        "delivery": {"const": "outbox"},
+        "provider": {"type": "string"},
+        "recipient": {"type": "string"},
+        "include_images": {"type": "boolean"},
+        "event_types": {"type": "array", "items": {"type": "string"}},
+        "list_command": {"type": "array", "items": {"type": "string"}},
+        "ack_command": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheduler", "notification_delivery", "persistent_state", "persist_external_ids", "requery_after_write"],
+      "properties": {
+        "scheduler": {"type": "boolean"},
+        "notification_delivery": {"type": "boolean"},
+        "persistent_state": {"const": true},
+        "persist_external_ids": {"const": true},
+        "requery_after_write": {"const": true}
+      }
+    }
+  }
+}

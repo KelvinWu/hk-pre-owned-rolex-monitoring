@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  SKILL_NAME: hk-pre-owned-rolex-monitoring
+  SKILL_DIR: skills/hk-pre-owned-rolex-monitoring
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: ${{ env.SKILL_DIR }}/pyproject.toml
+      - name: Install release dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "./${SKILL_DIR}[test]" "build>=1,<2" skills-ref==0.1.1
+      - name: Run release gates
+        run: |
+          python -m pytest -q "${SKILL_DIR}/tests" tests
+          agentskills validate "${SKILL_DIR}"
+          python scripts/check_publication.py --mode release --tag "${GITHUB_REF_NAME}"
+      - name: Build Python package
+        run: python -m build "${SKILL_DIR}" --outdir "${RUNNER_TEMP}/dist"
+      - name: Package Skill and checksums
+        run: |
+          mkdir -p "${RUNNER_TEMP}/release"
+          VERSION="${GITHUB_REF_NAME#v}"
+          git archive --format=tar.gz --prefix="${SKILL_NAME}/" --output="${RUNNER_TEMP}/release/${SKILL_NAME}-${VERSION}.tar.gz" HEAD:"${SKILL_DIR}"
+          git archive --format=zip --prefix="${SKILL_NAME}/" --output="${RUNNER_TEMP}/release/${SKILL_NAME}-${VERSION}.zip" HEAD:"${SKILL_DIR}"
+          cp "${RUNNER_TEMP}"/dist/* "${RUNNER_TEMP}/release/"
+          (cd "${RUNNER_TEMP}/release" && sha256sum * > SHA256SUMS.txt)
+      - name: Verify packaged Skill and clean install
+        run: |
+          mkdir -p "${RUNNER_TEMP}/unpacked"
+          tar -xzf "${RUNNER_TEMP}/release/${SKILL_NAME}-${GITHUB_REF_NAME#v}.tar.gz" -C "${RUNNER_TEMP}/unpacked"
+          agentskills validate "${RUNNER_TEMP}/unpacked/${SKILL_NAME}"
+          python -m venv "${RUNNER_TEMP}/clean"
+          "${RUNNER_TEMP}/clean/bin/python" -m pip install "${RUNNER_TEMP}"/release/*.whl
+          "${RUNNER_TEMP}/clean/bin/inventoryctl" skill info --json
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${RUNNER_TEMP}"/release/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${RUNNER_TEMP}"/release/* --verify-tag --generate-notes --title "${GITHUB_REF_NAME}"
+          fi

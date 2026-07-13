@@ -1,0 +1,4 @@
+interface:
+  display_name: "HK Pre-owned Rolex Monitoring"
+  short_description: "监控香港 Rolex CPO，并核验行情来源与证据"
+  default_prompt: "使用 $hk-pre-owned-rolex-monitoring 监控香港东方表行 Rolex CPO，保存商品图片；先检查行情来源权限、凭证和 license，再通过允许的正式 API 或 Market Packet 按 Rolex 型号、邻近年份、地区和价格口径比较二手行情。"

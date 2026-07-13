@@ -1,0 +1,33 @@
+schema_version: 1
+monitor_id: orientalwatch-rolex-cpo
+display_name: 东方表行 Rolex CPO
+enabled: true
+target:
+  adapter: orientalwatch-rolex-cpo
+  url: https://www.orientalwatch.com/zh-hant/rolex-certified-pre-owned/watches/?sort=high-low
+schedule:
+  timezone: Asia/Hong_Kong
+  jobs:
+    - role: main
+      cron: "0 9 * * *"
+    - role: watchdog
+      cron: "0 11 * * *"
+    - role: final_fallback
+      cron: "0 12 * * *"
+notification:
+  provider: runtime-default
+  recipient: current-user
+  send_no_change_report: true
+  include_images: true
+validation:
+  baseline_samples: 2
+  change_confirmation_samples: 2
+  suspicious_confirmation_samples: 3
+  sample_interval_seconds: 5
+  retry_delays_seconds: [120, 300, 600]
+  suspicious_absolute_change: 5
+  suspicious_percentage_change: 10
+state:
+  storage_backend: sqlite
+  image_cache: true
+  backup_enabled: true

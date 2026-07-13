@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hk-pre-owned-rolex-monitoring.local/schemas/runtime-result-v1.schema.json",
+  "title": "HK Pre-owned Rolex Monitoring Runtime Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "monitor_id", "results"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "monitor_id": {"type": "string", "minLength": 1},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["logical_id", "ok", "verified"],
+        "properties": {
+          "logical_id": {"type": "string", "minLength": 1},
+          "ok": {"type": "boolean"},
+          "external_id": {"type": ["string", "null"]},
+          "verified": {"type": "boolean"},
+          "error": {"type": ["object", "null"]}
+        }
+      }
+    }
+  }
+}

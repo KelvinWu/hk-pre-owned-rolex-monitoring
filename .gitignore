@@ -1,0 +1,18 @@
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.DS_Store
+
+# 用户运行状态和本地机密信息不得进入仓库。
+state/
+*.sqlite
+*.sqlite3
+.env
+.env.*
+reports/live-*.json

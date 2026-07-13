@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hk-pre-owned-rolex-monitoring.local/schemas/market-packet-v1.schema.json",
+  "title": "HK Pre-owned Rolex Monitoring Market Packet v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "packet_id", "as_of", "observations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "packet_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "as_of": {"type": "string", "format": "date-time"},
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_age_days": {"type": "integer", "minimum": 1, "maximum": 3650, "default": 90},
+        "minimum_independent_sources": {"type": "integer", "minimum": 2, "maximum": 10, "default": 2},
+        "reference_band_percent": {"type": "number", "exclusiveMinimum": 0, "maximum": 50, "default": 5},
+        "year_window": {"type": "integer", "minimum": 0, "maximum": 5, "default": 2},
+        "outlier_warning_percent": {"type": "number", "exclusiveMinimum": 0, "maximum": 100, "default": 30}
+      }
+    },
+    "collection_context": {
+      "type": "object",
+      "description": "采集器记录的非比较元数据，例如目标年份、license 声明和来源年份语义。不得据此伪造 observation 字段。",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observation_id", "source", "rolex_reference", "region", "basis",
+          "price_hkd", "observed_at", "year", "condition"
+        ],
+        "properties": {
+          "observation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "source": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"},
+          "source_listing_id": {"type": ["string", "null"]},
+          "independence_group": {"type": ["string", "null"], "minLength": 2, "maxLength": 128},
+          "underlying_listing_id": {"type": ["string", "null"], "minLength": 2, "maxLength": 256},
+          "dealer_name": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+          "rolex_reference": {"type": "string", "minLength": 2, "maxLength": 64},
+          "region": {"enum": ["HK", "MAINLAND_CN", "APAC", "GLOBAL"]},
+          "basis": {
+            "enum": ["market_estimate", "transaction_index", "asking_price", "auction_result", "dealer_quote"]
+          },
+          "price_hkd": {"type": "number", "exclusiveMinimum": 0},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "year": {"type": ["integer", "null"], "minimum": 1900, "maximum": 2200},
+          "condition": {
+            "enum": ["unworn", "excellent", "very_good", "good", "fair", "unknown"]
+          },
+          "completeness": {
+            "enum": ["full_set", "watch_only", "unknown"],
+            "default": "unknown"
+          },
+          "evidence_status": {
+            "enum": ["fixture", "unverified", "verified"],
+            "default": "unverified"
+          },
+          "acquisition_method": {
+            "enum": ["official_api", "authorized_export", "manual_url", "manual_snapshot", "fixture"],
+            "default": "manual_url"
+          },
+          "evidence_url": {"type": ["string", "null"]},
+          "evidence_note": {"type": ["string", "null"]},
+          "evidence_verified_at": {"type": ["string", "null"], "format": "date-time"},
+          "evidence_sha256": {
+            "type": ["string", "null"],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "anyOf": [
+          {
+            "required": ["evidence_url"],
+            "properties": {"evidence_url": {"type": "string", "minLength": 1}}
+          },
+          {
+            "required": ["evidence_note"],
+            "properties": {"evidence_note": {"type": "string", "minLength": 1}}
+          }
+        ],
+        "allOf": [
+          {
+            "if": {"properties": {"evidence_status": {"const": "verified"}}, "required": ["evidence_status"]},
+            "then": {
+              "required": ["evidence_verified_at", "evidence_sha256"],
+              "properties": {
+                "evidence_verified_at": {"type": "string", "format": "date-time"},
+                "evidence_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "acquisition_method": {"not": {"const": "fixture"}}
+              }
+            }
+          },
+          {
+            "if": {"properties": {"evidence_status": {"const": "fixture"}}, "required": ["evidence_status"]},
+            "then": {
+              "required": ["acquisition_method"],
+              "properties": {"acquisition_method": {"const": "fixture"}}
+            }
+          },
+          {
+            "if": {"properties": {"acquisition_method": {"const": "manual_url"}}, "required": ["acquisition_method"]},
+            "then": {
+              "required": ["evidence_url"],
+              "properties": {"evidence_url": {"type": "string", "minLength": 1}}
+            }
+          }
+        ]
+      }
+    }
+  }
+}
