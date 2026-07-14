@@ -10,7 +10,7 @@ from inventory_sentinel.adapters import AdapterRegistry
 from inventory_sentinel.locking import RunLock
 from inventory_sentinel.errors import RunLocked
 from inventory_sentinel.service import InventoryService
-from inventory_sentinel.storage import Storage
+from inventory_sentinel.storage import SCHEMA_VERSION, Storage
 
 from conftest import NoopImageCache, SequenceAdapter, fetch, make_items
 
@@ -123,13 +123,57 @@ def test_lock_prevents_concurrent_monitor_runs(tmp_path: Path) -> None:
 def test_schema_migration_and_future_version_guard(tmp_path: Path) -> None:
     state = tmp_path / "state"
     storage = Storage(state)
-    assert storage.integrity()["schema_version"] == 1
+    assert storage.integrity()["schema_version"] == SCHEMA_VERSION
     storage.close()
     connection = sqlite3.connect(state / "state.db")
-    connection.execute("PRAGMA user_version=2")
+    connection.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
     connection.close()
     with pytest.raises(RuntimeError, match="高于当前支持版本"):
         Storage(state)
+
+
+def test_schema_v1_migrates_delivery_receipts_and_local_date(tmp_path: Path) -> None:
+    state = tmp_path / "legacy-state"
+    state.mkdir()
+    connection = sqlite3.connect(state / "state.db")
+    connection.executescript(
+        """
+        CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+        CREATE TABLE runs(
+            run_id TEXT PRIMARY KEY, monitor_id TEXT NOT NULL, trigger_name TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL, started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL, state_modified INTEGER NOT NULL, snapshot_id TEXT,
+            result_json TEXT NOT NULL
+        );
+        CREATE TABLE outbox(
+            event_id TEXT PRIMARY KEY, monitor_id TEXT NOT NULL, run_id TEXT NOT NULL,
+            event_type TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, acknowledged_at TEXT
+        );
+        PRAGMA user_version=1;
+        """
+    )
+    connection.close()
+
+    storage = Storage(state)
+    try:
+        assert storage.integrity()["schema_version"] == 2
+        run_columns = {
+            row[1] for row in storage.conn.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        outbox_columns = {
+            row[1] for row in storage.conn.execute("PRAGMA table_info(outbox)").fetchall()
+        }
+        assert "local_date" in run_columns
+        assert {
+            "provider",
+            "external_message_id",
+            "delivered_at",
+            "delivery_verified",
+            "delivery_error_json",
+        }.issubset(outbox_columns)
+    finally:
+        storage.close()
 
 
 def test_json_schemas_are_valid_json() -> None:

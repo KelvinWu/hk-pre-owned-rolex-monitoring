@@ -81,6 +81,14 @@ python scripts/bootstrap.py install \
 
 安装回执会报告安装模式、Python 路径、`inventoryctl` 路径、模块回退命令、安装包 SHA-256 和验证结果，但不返回 pip 原始错误日志或可能带凭证的 URL。
 
+安装完成后运行离线功能自测：
+
+```text
+inventoryctl skill self-test --json
+```
+
+自测只使用临时目录和 Fixture，不访问真实网站，也不修改用户状态。`INSTALL_VERIFIED` 证明安装入口可运行；`self_test_status=PASS` 进一步证明基线、Diff、INVALID、Outbox 和数据库核心生命周期可工作，两者不能相互替代。
+
 ## 复制 Skill 文件
 
 在 Skill 根目录可以把同一包复制到不同宿主目录：

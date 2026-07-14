@@ -49,13 +49,15 @@ def test_image_cache_reports_paths_and_falls_back_to_saved_file(tmp_path: Path) 
     item = InventoryItem(stable_id="LOT-1", source_id="LOT-1", image_url="https://img.test/good.jpg")
     report, warnings = cache.cache_with_report([item])
     assert warnings == []
-    assert report["LOT-1"] == {
-        "cache_status": "AVAILABLE",
-        "original_image_url": "https://img.test/good.jpg",
-        "cached_image_path": str((tmp_path / "images/LOT-1.jpg").resolve()),
-        "content_type": "image/jpeg",
-        "attachment_ready": True,
-    }
+    assert report["LOT-1"]["cache_status"] == "AVAILABLE"
+    assert report["LOT-1"]["original_image_url"] == "https://img.test/good.jpg"
+    assert report["LOT-1"]["cached_image_path"] == str(
+        (tmp_path / "images/LOT-1.jpg").resolve()
+    )
+    assert report["LOT-1"]["content_type"] == "image/jpeg"
+    assert report["LOT-1"]["attachment_ready"] is True
+    assert report["LOT-1"]["sha256"].startswith("sha256:")
+    assert report["LOT-1"]["byte_size"] == 8
 
     unavailable = item.model_copy(update={"image_url": "https://img.test/offline.jpg"})
     fallback, warnings = cache.cache_with_report([unavailable])
@@ -67,3 +69,34 @@ def test_image_cache_reports_paths_and_falls_back_to_saved_file(tmp_path: Path) 
     assert historical["cache_status"] == "AVAILABLE_HISTORICAL"
     assert historical["cached_image_path"].endswith("/LOT-1.jpg")
     client.close()
+
+
+def test_image_cache_reuses_verified_file_without_redownloading(tmp_path: Path) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            content=b"\xff\xd8\xffcached-image",
+            headers={"content-type": "image/jpeg", "etag": '"image-v1"'},
+            request=request,
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cache = ImageCache(tmp_path / "images", client=client)
+    item = InventoryItem(
+        stable_id="LOT-CACHE",
+        source_id="LOT-CACHE",
+        image_url="https://img.example.test/cache.jpg",
+    )
+    try:
+        first, _ = cache.cache_with_report([item])
+        second, _ = cache.cache_with_report([item])
+        assert calls == 1
+        assert first["LOT-CACHE"]["cache_status"] == "AVAILABLE"
+        assert second["LOT-CACHE"]["cache_status"] == "REUSED_VERIFIED"
+        assert second["LOT-CACHE"]["sha256"] == first["LOT-CACHE"]["sha256"]
+    finally:
+        cache.close()

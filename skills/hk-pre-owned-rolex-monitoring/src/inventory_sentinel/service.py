@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -22,13 +23,27 @@ from .market_intelligence import (
     market_analysis_status,
     market_human_summary,
 )
+from .market_packet_builder import (
+    add_observation,
+    attach_evidence,
+    finalize_packet,
+    import_csv_observations,
+    init_packet,
+)
 from .market_sources import (
     SOURCE_REGISTRY_VERSION,
     WatchChartsCollector,
     diagnose_source,
     market_sources as source_catalog,
 )
-from .models import FetchResult, MonitorManifest, RuntimeResult, load_manifest, load_market_packet
+from .models import (
+    FetchResult,
+    MarketPacket,
+    MonitorManifest,
+    RuntimeResult,
+    load_manifest,
+    load_market_packet,
+)
 from .output import result_envelope
 from .presentation import build_human_summary_zh, change_summary_zh
 from .runtime_plan import build_runtime_plan
@@ -75,6 +90,193 @@ class InventoryService:
                 },
             ),
             0,
+        )
+
+    @staticmethod
+    def monitor_init(
+        *,
+        output_path: str | Path,
+        monitor_id: str,
+        display_name: str,
+        timezone: str,
+        recipient: str,
+        jobs: list[dict[str, str]],
+        overwrite: bool,
+    ) -> ServiceResult:
+        import yaml
+
+        destination = Path(output_path).expanduser().resolve()
+        if destination.exists() and not overwrite:
+            raise ConfigError(f"输出文件已存在，未覆盖: {destination}")
+        if not destination.parent.is_dir():
+            raise ConfigError(f"输出目录不存在: {destination.parent}")
+        manifest = MonitorManifest.model_validate(
+            {
+                "schema_version": 1,
+                "monitor_id": monitor_id,
+                "display_name": display_name,
+                "enabled": True,
+                "target": {
+                    "adapter": "orientalwatch-rolex-cpo",
+                    "url": "https://www.orientalwatch.com/zh-hant/rolex-certified-pre-owned/watches/?sort=high-low",
+                },
+                "schedule": {"timezone": timezone, "jobs": jobs},
+                "notification": {
+                    "provider": "runtime-default",
+                    "recipient": recipient,
+                    "send_no_change_report": True,
+                    "include_images": True,
+                },
+                "validation": {},
+                "state": {},
+            }
+        )
+        payload = manifest.model_dump(mode="json")
+        text = (
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+            if destination.suffix.lower() == ".json"
+            else yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
+        )
+        temporary = destination.with_suffix(destination.suffix + ".tmp")
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(destination)
+        setup_questions: list[str] = []
+        if not jobs:
+            setup_questions.append("由哪个宿主负责调度，使用什么时区和运行时间？")
+        if recipient == "current-user":
+            setup_questions.append("宿主通知的真实接收目标是什么？")
+        setup_required = bool(setup_questions)
+        return (
+            result_envelope(
+                operation="monitor.init",
+                status="NO_CHANGE",
+                ok=True,
+                result={
+                    "output_path": str(destination),
+                    "manifest": payload,
+                    "setup_required": setup_required,
+                    "setup_questions": setup_questions,
+                    "host_actions_executed": False,
+                },
+                next_actions=[
+                    {
+                        "action": "确认配置并创建监控",
+                        "command": ["monitor", "create", "--config", str(destination), "--json"],
+                        "condition": "持久状态目录、调度与通知选择已经确认",
+                    }
+                ],
+            ),
+            0,
+        )
+
+    @staticmethod
+    def self_test() -> ServiceResult:
+        checks: list[dict[str, Any]] = []
+        with tempfile.TemporaryDirectory(prefix="inventory-sentinel-selftest-") as temporary:
+            root = Path(temporary)
+            fixture = root / "catalog.json"
+            state = root / "state"
+            config = root / "monitor.json"
+            baseline_items = [
+                {
+                    "stable_id": "LOT-SELF-1",
+                    "source_id": "LOT-SELF-1",
+                    "title": "Datejust 41",
+                    "reference": "126334",
+                    "year": 2021,
+                    "price": 100000,
+                    "currency": "HKD",
+                },
+                {
+                    "stable_id": "LOT-SELF-2",
+                    "source_id": "LOT-SELF-2",
+                    "title": "Submariner",
+                    "reference": "124060",
+                    "year": 2022,
+                    "price": 90000,
+                    "currency": "HKD",
+                },
+            ]
+            fixture.write_text(json.dumps({"items": baseline_items}), encoding="utf-8")
+            manifest = {
+                "schema_version": 1,
+                "monitor_id": "self-test-monitor",
+                "display_name": "离线自测",
+                "target": {
+                    "adapter": "fixture",
+                    "url": str(fixture),
+                    "fixture_path": str(fixture),
+                },
+                "schedule": {"timezone": "UTC", "jobs": []},
+                "notification": {"send_no_change_report": True, "include_images": False},
+                "validation": {
+                    "sample_interval_seconds": 0,
+                    "suspicious_absolute_change": 5,
+                    "suspicious_percentage_change": 100,
+                },
+                "state": {"image_cache": False},
+            }
+            config.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+            service = InventoryService(state, sleeper=lambda _: None)
+            try:
+                created, _ = service.create_monitor(config)
+                baseline, _ = service.baseline("self-test-monitor")
+                unchanged, _ = service.run_monitor("self-test-monitor", "selftest-no-change")
+                changed_items = [
+                    {**baseline_items[0], "price": 95000},
+                    {
+                        "stable_id": "LOT-SELF-3",
+                        "source_id": "LOT-SELF-3",
+                        "title": "Explorer",
+                        "reference": "124270",
+                        "year": 2021,
+                        "price": 78000,
+                        "currency": "HKD",
+                    },
+                ]
+                fixture.write_text(json.dumps({"items": changed_items}), encoding="utf-8")
+                changed, _ = service.run_monitor("self-test-monitor", "selftest-changed")
+                verified_hash = service.storage.latest_snapshot("self-test-monitor")["snapshot_hash"]
+                fixture.write_text('{"items": []}', encoding="utf-8")
+                invalid, invalid_code = service.run_monitor("self-test-monitor", "selftest-invalid")
+                preserved = service.storage.latest_snapshot("self-test-monitor")["snapshot_hash"]
+                checks.extend(
+                    [
+                        {"name": "monitor_create", "ok": created["ok"]},
+                        {"name": "baseline", "ok": baseline["status"] == "BASELINE_CREATED"},
+                        {"name": "no_change", "ok": unchanged["status"] == "NO_CHANGE"},
+                        {"name": "changed", "ok": changed["status"] == "CHANGED"},
+                        {
+                            "name": "invalid_preserves_baseline",
+                            "ok": invalid_code == 2
+                            and invalid["status"] == "INVALID"
+                            and preserved == verified_hash,
+                        },
+                        {
+                            "name": "outbox_created",
+                            "ok": len(service.storage.list_outbox("self-test-monitor")) >= 1,
+                        },
+                        {"name": "database_integrity", "ok": service.storage.integrity()["ok"]},
+                    ]
+                )
+            finally:
+                service.close()
+        ok = all(check["ok"] for check in checks)
+        return (
+            result_envelope(
+                operation="skill.self-test",
+                status="NO_CHANGE" if ok else "ERROR",
+                ok=ok,
+                result={
+                    "self_test_status": "PASS" if ok else "FAIL",
+                    "checks": checks,
+                    "temporary_state_removed": True,
+                    "network_accessed": False,
+                    "user_state_modified": False,
+                },
+                next_actions=[],
+            ),
+            0 if ok else 4,
         )
 
     def runtime_probe(self) -> ServiceResult:
@@ -155,6 +357,7 @@ class InventoryService:
                     items=trusted.items,
                     snapshot_hash=snapshot_hash,
                     diagnostics=diagnostics,
+                    local_date=datetime.now(ZoneInfo(manifest.schedule.timezone)).date().isoformat(),
                 )
                 return (
                     result_envelope(
@@ -262,6 +465,7 @@ class InventoryService:
                     run_id=run_id,
                     trigger=trigger,
                     idempotency_key=idempotency_key,
+                    local_date=local_date,
                     status=status,
                     items=first.items,
                     snapshot_hash=snapshot_hash,
@@ -304,6 +508,74 @@ class InventoryService:
                 ok=True,
                 monitor_id=monitor_id,
                 result=data,
+            ),
+            0,
+        )
+
+    def monitor_list(self) -> ServiceResult:
+        monitors = self.storage.list_monitors()
+        return (
+            result_envelope(
+                operation="monitor.list",
+                status="NO_CHANGE",
+                ok=True,
+                result={"monitors": monitors, "count": len(monitors)},
+            ),
+            0,
+        )
+
+    def monitor_history(
+        self,
+        monitor_id: str,
+        *,
+        date: str | None = None,
+        limit: int = 50,
+    ) -> ServiceResult:
+        if not 1 <= limit <= 500:
+            raise ConfigError("history limit 必须在 1 到 500 之间")
+        runs = self.storage.list_runs(monitor_id, date=date, limit=limit)
+        return (
+            result_envelope(
+                operation="monitor.history",
+                status="NO_CHANGE",
+                ok=True,
+                monitor_id=monitor_id,
+                result={"date": date, "runs": runs, "count": len(runs)},
+            ),
+            0,
+        )
+
+    def show_run(self, run_id: str) -> ServiceResult:
+        run = self.storage.get_run(run_id)
+        result = dict(run["result"])
+        diff = result.get("diff") or {"added": [], "removed": [], "modified": []}
+        item_count = int(
+            result.get("item_count")
+            or result.get("baseline", {}).get("item_count")
+            or 0
+        )
+        if run["status"] in {"CHANGED", "NO_CHANGE"}:
+            human_summary = build_human_summary_zh(run["status"], diff, item_count)
+        elif run["status"] == "BASELINE_CREATED":
+            human_summary = {"headline": f"可信基线已建立，共 {item_count} 只。", "changes": []}
+        else:
+            human_summary = {
+                "headline": "本次运行数据不可信，上一份成功基线已保留。",
+                "changes": [],
+            }
+        attachments = self._attachments_from_diff(diff)
+        return (
+            result_envelope(
+                operation="monitor.show-run",
+                status="NO_CHANGE",
+                ok=True,
+                monitor_id=run["monitor_id"],
+                run_id=run_id,
+                result={
+                    "run": run,
+                    "human_summary_zh": human_summary,
+                    "attachments": attachments,
+                },
             ),
             0,
         )
@@ -437,20 +709,51 @@ class InventoryService:
                 status="NO_CHANGE",
                 ok=True,
                 monitor_id=monitor_id,
-                result={"events": events, "pending": sum(event["status"] == "pending" for event in events)},
+                result={
+                    "events": events,
+                    "pending": sum(event["status"] != "verified" for event in events),
+                    "verified": sum(event["status"] == "verified" for event in events),
+                },
             ),
             0,
         )
 
-    def outbox_ack(self, event_id: str) -> ServiceResult:
-        modified = self.storage.ack_outbox(event_id)
+    def outbox_ack(
+        self,
+        event_id: str,
+        *,
+        provider: str | None = None,
+        external_message_id: str | None = None,
+        delivered_at: str | None = None,
+        verified: bool = False,
+        delivery_error: dict[str, Any] | None = None,
+    ) -> ServiceResult:
+        event, modified = self.storage.ack_outbox(
+            event_id,
+            provider=provider,
+            external_message_id=external_message_id,
+            delivered_at=delivered_at,
+            verified=verified,
+            delivery_error=delivery_error,
+        )
         return (
             result_envelope(
                 operation="outbox.ack",
-                status="NO_CHANGE",
+                status="NO_CHANGE" if modified else "SKIPPED_DUPLICATE",
                 ok=True,
                 state_modified=modified,
-                result={"event_id": event_id, "acknowledged": modified},
+                monitor_id=event["monitor_id"],
+                run_id=event["run_id"],
+                result={
+                    "event_id": event_id,
+                    "delivery_status": event["status"],
+                    "provider": event["provider"],
+                    "external_message_id": event["external_message_id"],
+                    "delivered_at": event["delivered_at"],
+                    "verified": bool(event["delivery_verified"]),
+                    "delivery_error": event["delivery_error"],
+                },
+                next_actions=[],
             ),
             0,
         )
@@ -578,6 +881,123 @@ class InventoryService:
         )
 
     @staticmethod
+    def market_packet_init(
+        *,
+        output_path: str | Path,
+        packet_id: str,
+        as_of: str,
+        overwrite: bool,
+    ) -> ServiceResult:
+        destination, payload = init_packet(
+            output_path,
+            packet_id=packet_id,
+            as_of=as_of,
+            overwrite=overwrite,
+        )
+        return (
+            result_envelope(
+                operation="market.packet.init",
+                status="NO_CHANGE",
+                ok=True,
+                result={
+                    "output_path": str(destination),
+                    "packet_id": payload["packet_id"],
+                    "observation_count": 0,
+                    "draft": True,
+                },
+            ),
+            0,
+        )
+
+    @staticmethod
+    def market_packet_add(
+        *,
+        file_path: str | Path,
+        observation: dict[str, Any],
+    ) -> ServiceResult:
+        destination, payload, validated = add_observation(file_path, observation)
+        return (
+            result_envelope(
+                operation="market.packet.add",
+                status="NO_CHANGE",
+                ok=True,
+                result={
+                    "file": str(destination),
+                    "observation_id": validated.observation_id,
+                    "observation_count": len(payload["observations"]),
+                },
+            ),
+            0,
+        )
+
+    @staticmethod
+    def market_packet_import_csv(
+        *,
+        file_path: str | Path,
+        csv_path: str | Path,
+        source: str | None,
+    ) -> ServiceResult:
+        destination, payload, imported = import_csv_observations(
+            file_path,
+            csv_path,
+            source_override=source,
+        )
+        return (
+            result_envelope(
+                operation="market.packet.import-csv",
+                status="NO_CHANGE",
+                ok=True,
+                result={
+                    "file": str(destination),
+                    "imported": imported,
+                    "observation_count": len(payload["observations"]),
+                },
+            ),
+            0,
+        )
+
+    @staticmethod
+    def market_packet_attach_evidence(
+        *,
+        file_path: str | Path,
+        observation_id: str,
+        evidence_file: str | Path,
+        verified_at: str,
+    ) -> ServiceResult:
+        destination, _, observation = attach_evidence(
+            file_path,
+            observation_id=observation_id,
+            evidence_file=evidence_file,
+            verified_at=verified_at,
+        )
+        return (
+            result_envelope(
+                operation="market.packet.attach-evidence",
+                status="NO_CHANGE",
+                ok=True,
+                result={
+                    "file": str(destination),
+                    "observation_id": observation.observation_id,
+                    "evidence_status": observation.evidence_status,
+                    "evidence_sha256": observation.evidence_sha256,
+                    "evidence_verified_at": observation.evidence_verified_at.isoformat()
+                    if observation.evidence_verified_at
+                    else None,
+                },
+            ),
+            0,
+        )
+
+    @staticmethod
+    def market_packet_finalize(file_path: str | Path) -> ServiceResult:
+        destination, _ = finalize_packet(file_path)
+        payload, code = InventoryService.market_packet_validate(destination)
+        payload["operation"] = "market.packet.finalize"
+        payload["result"]["file"] = str(destination)
+        payload["result"]["finalized"] = True
+        return payload, code
+
+    @staticmethod
     def market_packet_validate(file_path: str | Path) -> ServiceResult:
         packet = load_market_packet(file_path)
         counts = {status: 0 for status in ("fixture", "unverified", "verified")}
@@ -611,13 +1031,43 @@ class InventoryService:
             0,
         )
 
-    def market_compare(self, monitor_id: str, file_path: str | Path) -> ServiceResult:
-        self.storage.get_manifest(monitor_id)
-        snapshot = self.storage.latest_snapshot(monitor_id)
-        if snapshot is None:
-            raise ConfigError("尚未建立可信库存基线，不能执行行业对比")
-        packet = load_market_packet(file_path)
-        comparisons, warnings, stats = compare_snapshot(snapshot["items"], packet)
+    def market_compare(
+        self,
+        monitor_id: str | None,
+        file_path: str | Path | MarketPacket,
+        *,
+        run_id: str | None = None,
+        event_id: str | None = None,
+    ) -> ServiceResult:
+        selectors = sum(value is not None for value in (monitor_id, run_id, event_id))
+        if selectors != 1:
+            raise ConfigError("market compare 必须且只能指定 --id、--run-id 或 --event-id 之一")
+        selection: dict[str, Any]
+        if run_id:
+            run, items = self.storage.items_for_run(run_id, changes_only=True)
+            monitor_id = run["monitor_id"]
+            selection = {"mode": "run_changes", "run_id": run_id}
+        elif event_id:
+            event, items = self.storage.items_for_event(event_id)
+            monitor_id = event["monitor_id"]
+            run_id = event["run_id"]
+            selection = {"mode": "outbox_event", "event_id": event_id, "run_id": run_id}
+        else:
+            assert monitor_id is not None
+            self.storage.get_manifest(monitor_id)
+            snapshot = self.storage.latest_snapshot(monitor_id)
+            if snapshot is None:
+                raise ConfigError("尚未建立可信库存基线，不能执行行业对比")
+            items = snapshot["items"]
+            selection = {
+                "mode": "latest_snapshot",
+                "snapshot_id": snapshot["snapshot_id"],
+                "snapshot_hash": snapshot["snapshot_hash"],
+            }
+        if not items:
+            raise ConfigError("所选运行或事件没有可用于行情比较的商品")
+        packet = file_path if isinstance(file_path, MarketPacket) else load_market_packet(file_path)
+        comparisons, warnings, stats = compare_snapshot(items, packet)
         analysis_status = market_analysis_status(comparisons)
         return (
             result_envelope(
@@ -625,12 +1075,12 @@ class InventoryService:
                 status="NO_CHANGE",
                 ok=True,
                 monitor_id=monitor_id,
+                run_id=run_id,
                 state_modified=False,
                 result={
                     "packet_id": packet.packet_id,
                     "as_of": packet.as_of.isoformat(),
-                    "inventory_snapshot_id": snapshot["snapshot_id"],
-                    "inventory_snapshot_hash": snapshot["snapshot_hash"],
+                    "selection": selection,
                     "comparison_config": packet.comparison.model_dump(mode="json"),
                     "analysis_status": analysis_status,
                     "stats": stats,
@@ -640,6 +1090,77 @@ class InventoryService:
                     "not_investment_advice": True,
                 },
                 warnings=warnings,
+            ),
+            0,
+        )
+
+    def report_build(
+        self,
+        run_id: str,
+        *,
+        market_packet: str | Path | MarketPacket | None = None,
+    ) -> ServiceResult:
+        run = self.storage.get_run(run_id)
+        result = run["result"]
+        diff = result.get("diff") or {"added": [], "removed": [], "modified": []}
+        item_count = int(
+            result.get("item_count")
+            or result.get("baseline", {}).get("item_count")
+            or 0
+        )
+        if run["status"] in {"CHANGED", "NO_CHANGE"}:
+            inventory_summary = build_human_summary_zh(run["status"], diff, item_count)
+        elif run["status"] == "BASELINE_CREATED":
+            inventory_summary = {"headline": f"可信基线已建立，共 {item_count} 只。", "changes": []}
+        else:
+            inventory_summary = {
+                "headline": "本次运行数据不可信，上一份成功基线已保留。",
+                "changes": [],
+            }
+        market_result: dict[str, Any] | None = None
+        if market_packet is not None and run["status"] == "CHANGED":
+            _, items = self.storage.items_for_run(run_id, changes_only=True)
+            packet = (
+                market_packet
+                if isinstance(market_packet, MarketPacket)
+                else load_market_packet(market_packet)
+            )
+            comparisons, warnings, stats = compare_snapshot(items, packet)
+            market_result = {
+                "packet_id": packet.packet_id,
+                "analysis_status": market_analysis_status(comparisons),
+                "stats": stats,
+                "comparisons": comparisons,
+                "human_summary_zh": market_human_summary(comparisons),
+                "warnings": warnings,
+            }
+        report_lines = [inventory_summary["headline"], *inventory_summary["changes"]]
+        if market_result:
+            market_summary = market_result["human_summary_zh"]
+            report_lines.append(f"行业行情：{market_summary['headline']}")
+            report_lines.extend(item["summary"] for item in market_summary["items"])
+        attachments = self._attachments_from_diff(diff)
+        return (
+            result_envelope(
+                operation="report.build",
+                status="NO_CHANGE",
+                ok=True,
+                monitor_id=run["monitor_id"],
+                run_id=run_id,
+                result={
+                    "user_report_zh": {
+                        "headline": inventory_summary["headline"],
+                        "sections": {
+                            "inventory": inventory_summary,
+                            "market": market_result["human_summary_zh"] if market_result else None,
+                        },
+                        "text": "\n".join(report_lines),
+                    },
+                    "market": market_result,
+                    "attachments": attachments,
+                    "attachment_count": len(attachments),
+                },
+                next_actions=[],
             ),
             0,
         )
@@ -753,7 +1274,8 @@ class InventoryService:
             "attempted": sum(bool(entry.get("original_image_url")) for entry in entries.values()),
             "available": sum(bool(entry.get("attachment_ready")) for entry in entries.values()),
             "downloaded": statuses.count("AVAILABLE"),
-            "reused": statuses.count("AVAILABLE_FROM_PREVIOUS_RUN"),
+            "reused": statuses.count("AVAILABLE_FROM_PREVIOUS_RUN")
+            + statuses.count("REUSED_VERIFIED"),
             "failed": statuses.count("FAILED"),
             "without_image_url": statuses.count("NO_IMAGE_URL"),
         }
@@ -807,6 +1329,27 @@ class InventoryService:
             close = getattr(cache, "close", None)
             if close:
                 close()
+
+    @staticmethod
+    def _attachments_from_diff(
+        diff: dict[str, list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
+        attachments: list[dict[str, Any]] = []
+        for change_type in ("added", "removed", "modified"):
+            for change in diff.get(change_type, []):
+                image = change.get("image_cache") or {}
+                if not image.get("attachment_ready"):
+                    continue
+                attachments.append(
+                    {
+                        "change_type": change_type,
+                        "stable_id": change.get("stable_id")
+                        or change.get("after", {}).get("stable_id"),
+                        "product_identity": change.get("product_identity"),
+                        **image,
+                    }
+                )
+        return attachments
 
     @staticmethod
     def _events_for_run(
@@ -865,6 +1408,7 @@ class InventoryService:
             run_id=run_id,
             trigger=trigger,
             idempotency_key=idempotency_key,
+            local_date=datetime.now(ZoneInfo(manifest.schedule.timezone)).date().isoformat(),
             error=error,
         )
         return (

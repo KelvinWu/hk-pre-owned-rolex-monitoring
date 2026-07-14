@@ -79,9 +79,10 @@ def test_stable_cli_lifecycle_and_json_envelope(tmp_path: Path) -> None:
         "run_id",
         "state_modified",
         "result",
-        "warnings",
-        "error",
-    }
+            "warnings",
+            "error",
+            "next_actions",
+        }
 
     process, sources = invoke("--state-dir", str(state), "market", "sources", "--json")
     assert process.returncode == 0
@@ -176,3 +177,59 @@ def test_market_collect_missing_credentials_returns_json_error() -> None:
     assert payload["status"] == "ERROR"
     assert payload["error"]["code"] == "SOURCE_AUTH_REQUIRED"
     assert "secret" not in json.dumps(payload).lower()
+
+
+def test_v020_cli_history_report_init_and_self_test(tmp_path: Path) -> None:
+    manifest_draft = tmp_path / "orientalwatch.yaml"
+    process, initialized = invoke(
+        "monitor",
+        "init",
+        "--output",
+        str(manifest_draft),
+        "--id",
+        "cli-draft",
+        "--json",
+    )
+    assert process.returncode == 0
+    assert initialized["result"]["setup_required"] is True
+    assert manifest_draft.is_file()
+
+    process, self_test = invoke("skill", "self-test", "--json")
+    assert process.returncode == 0
+    assert self_test["result"]["self_test_status"] == "PASS"
+    assert self_test["result"]["user_state_modified"] is False
+
+    fixture = SKILL_ROOT / "tests/fixtures/catalog-baseline.json"
+    manifest = make_fixture_manifest(tmp_path, fixture)
+    state = tmp_path / "state-v020"
+    invoke("--state-dir", str(state), "monitor", "create", "--config", str(manifest), "--json")
+    invoke("--state-dir", str(state), "monitor", "baseline", "--id", "cli-monitor", "--json")
+    _, run = invoke(
+        "--state-dir",
+        str(state),
+        "monitor",
+        "run",
+        "--id",
+        "cli-monitor",
+        "--trigger",
+        "v020",
+        "--json",
+    )
+
+    process, history = invoke(
+        "--state-dir", str(state), "monitor", "history", "--id", "cli-monitor", "--json"
+    )
+    assert process.returncode == 0
+    assert any(row["run_id"] == run["run_id"] for row in history["result"]["runs"])
+
+    process, shown = invoke(
+        "--state-dir", str(state), "monitor", "show-run", "--run-id", run["run_id"], "--json"
+    )
+    assert process.returncode == 0
+    assert shown["result"]["human_summary_zh"]["headline"].startswith("库存无变化")
+
+    process, report = invoke(
+        "--state-dir", str(state), "report", "build", "--run-id", run["run_id"], "--json"
+    )
+    assert process.returncode == 0
+    assert report["result"]["user_report_zh"]["text"].startswith("库存无变化")

@@ -96,7 +96,7 @@ def test_publication_requires_dependency_free_bootstrap(tmp_path, monkeypatch, c
     assert "scripts/bootstrap.py" in skill_files["detail"]
 
 
-def test_v011_release_uses_mit_and_fixed_release_url():
+def test_v020_local_code_preserves_mit_and_published_v011_url():
     license_text = (REPOSITORY_ROOT / "LICENSE").read_text()
     package = tomllib.loads(
         (REPOSITORY_ROOT / "skills/hk-pre-owned-rolex-monitoring/pyproject.toml").read_text()
@@ -110,8 +110,9 @@ def test_v011_release_uses_mit_and_fixed_release_url():
     assert license_text.startswith("MIT License\n")
     assert "Copyright (c) 2026 KelvinWu" in license_text
     assert package["project"]["license"] == "MIT"
-    assert '__version__ = "0.1.1"' in version_text
-    assert "https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/tree/v0.1.1/" in readme
+    assert '__version__ = "0.2.0"' in version_text
+    assert "当前正式版本为 `0.2.0`" in readme
+    assert "https://github.com/KelvinWu/hk-pre-owned-rolex-monitoring/tree/v0.2.0/" in readme
 
 
 def test_workflows_use_node24_compatible_setup_python():

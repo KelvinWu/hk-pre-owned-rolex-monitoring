@@ -19,7 +19,19 @@
           "logical_id": {"type": "string", "minLength": 1},
           "required_capability": {"const": "scheduler"},
           "idempotency_key": {"type": "string", "minLength": 1},
-          "parameters": {"type": "object"},
+          "parameters": {
+            "type": "object",
+            "required": ["cron", "timezone", "retry_delays_seconds", "invocation"],
+            "properties": {
+              "cron": {"type": "string"},
+              "timezone": {"type": "string"},
+              "retry_delays_seconds": {
+                "type": "array",
+                "items": {"type": "integer", "minimum": 0}
+              },
+              "invocation": {"type": "object"}
+            }
+          },
           "verification": {
             "type": "object",
             "required": ["required", "method", "record_external_id"],

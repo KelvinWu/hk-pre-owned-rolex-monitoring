@@ -10,8 +10,10 @@ v1 的 `operations` 支持：
 
 `notification` 描述 Outbox 交付方式、事件类型以及 list/ack 命令；`requirements` 声明宿主必须提供的能力，其中 `persistent_state=true` 要求 `state-dir` 跨任务和重启保留数据库与图片。所有 `schedule.upsert` 操作都内含重新查询验证要求，Skill 本身不会直接执行宿主动作或发送通知。
 
+每个 `schedule.upsert.parameters` 都包含 Manifest 的 `retry_delays_seconds`。这是宿主执行失败后的声明式重试策略，不表示 Skill 已经在系统中创建重试任务；宿主必须把实际任务 ID 和核验结果写回。
+
 `runtime probe` 只能验证状态目录当前可写，并返回 `persistent_storage=host_verification_required`；宿主必须通过自身持久卷配置或重启后复查确认持久性，不得把一次写入成功描述成持久存储已验证。
 
 若宿主需要行业对比，由宿主通过正式 API、授权导出或人工证据生成 Market Packet，再调用 `market compare`。Runtime Plan 不授权宿主绕过第三方登录、订阅、反自动化或使用条款。
 
-宿主回传必须包含 `logical_id`、`ok`、`external_id`、`verified` 和可选 `error`。只有 `ok=true`、`verified=true` 且 `external_id` 非空时，绑定才算验证成功。
+宿主回传必须包含 `logical_id`、`ok`、`external_id`、`verified` 和可选 `error`。只有 `ok=true`、`verified=true` 且 `external_id` 非空时，绑定才算验证成功。通知同样必须将 provider、外部消息 ID、送达时间和重新查询结果交给 `outbox ack`；没有这些证据只能记为 `sent_unverified`。

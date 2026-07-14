@@ -1,0 +1,17 @@
+schema_version: 1
+should_trigger:
+  - prompt: 帮我看看东方表行二手劳力士今天有没有上新或改价
+    workflow: monitor.run
+  - prompt: 把昨天那次东方表行 Rolex CPO 的结果和图片再给我看一下
+    workflow: monitor.history
+  - prompt: 比较这只 2021 年 126334 和香港前后两年的二手行情
+    workflow: market.compare
+  - prompt: 这个 HK Rolex Skill 在云端安装时 PyPI 下载超时了
+    workflow: bootstrap.doctor
+should_not_trigger:
+  - prompt: 帮我监控一个普通电商网站的库存
+    reason: 不是东方表行香港 Rolex CPO
+  - prompt: 查一下 Rolex 新表官方零售价
+    reason: 不是二手 CPO 库存或行情
+  - prompt: 告诉我现在该不该买劳力士赚钱
+    reason: 不提供投资建议
