@@ -59,8 +59,22 @@ def test_full_lifecycle_and_invalid_preserves_verified_snapshot(
         assert no_change["result"]["confirmation_samples"] == 1
         event = service.storage.list_outbox("test-monitor")[0]
         assert event["event_type"] == "inventory.no_change"
-        assert service.storage.ack_outbox(event["event_id"]) is True
-        assert service.storage.ack_outbox(event["event_id"]) is False
+        acknowledged, code = service.outbox_ack(
+            event["event_id"],
+            provider="test",
+            external_message_id="message-no-change",
+            delivered_at="2026-07-14T12:00:00+08:00",
+            verified=True,
+        )
+        assert code == 0 and acknowledged["result"]["verified"] is True
+        duplicate, code = service.outbox_ack(
+            event["event_id"],
+            provider="test",
+            external_message_id="message-no-change",
+            delivered_at="2026-07-14T12:00:00+08:00",
+            verified=True,
+        )
+        assert code == 0 and duplicate["status"] == "SKIPPED_DUPLICATE"
 
         changed, code = service.run_monitor("test-monitor", "changed")
         assert code == 0 and changed["status"] == "CHANGED"

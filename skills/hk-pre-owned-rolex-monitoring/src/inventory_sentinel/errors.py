@@ -60,6 +60,10 @@ class SourceTermsReviewRequired(ConfigError):
     code = "SOURCE_TERMS_REVIEW_REQUIRED"
 
 
+class SourcePolicyStale(ConfigError):
+    code = "SOURCE_POLICY_STALE"
+
+
 class SourceRateLimited(RuntimeFailure):
     code = "SOURCE_RATE_LIMITED"
 

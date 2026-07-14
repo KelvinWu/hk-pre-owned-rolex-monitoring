@@ -6,12 +6,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .errors import MonitorNotFound
+from .errors import ConfigError, MonitorNotFound
 from .models import InventoryItem, MonitorManifest, RuntimeActionResult
 from .util import json_dumps, utc_now
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Storage:
@@ -111,6 +111,27 @@ class Storage:
                     (1, utc_now()),
                 )
                 self.conn.execute("PRAGMA user_version=1")
+            current = 1
+        if current < 2:
+            with self.conn:
+                self.conn.executescript(
+                    """
+                    ALTER TABLE runs ADD COLUMN local_date TEXT;
+                    ALTER TABLE outbox ADD COLUMN provider TEXT;
+                    ALTER TABLE outbox ADD COLUMN external_message_id TEXT;
+                    ALTER TABLE outbox ADD COLUMN delivered_at TEXT;
+                    ALTER TABLE outbox ADD COLUMN delivery_verified INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE outbox ADD COLUMN delivery_error_json TEXT;
+                    UPDATE runs
+                       SET local_date=substr(finished_at, 1, 10)
+                     WHERE local_date IS NULL;
+                    """
+                )
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                    (2, utc_now()),
+                )
+                self.conn.execute("PRAGMA user_version=2")
 
     def register_monitor(self, manifest: MonitorManifest) -> bool:
         now = utc_now()
@@ -141,6 +162,28 @@ class Storage:
             raise MonitorNotFound(f"Monitor 不存在: {monitor_id}")
         return MonitorManifest.model_validate_json(row["manifest_json"])
 
+    def list_monitors(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT monitor_id, manifest_json, created_at, updated_at FROM monitors ORDER BY monitor_id"
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            manifest = MonitorManifest.model_validate_json(row["manifest_json"])
+            status = self.monitor_status(row["monitor_id"])
+            result.append(
+                {
+                    "monitor_id": row["monitor_id"],
+                    "display_name": manifest.display_name,
+                    "enabled": manifest.enabled,
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                    "latest_verified_snapshot": status["latest_verified_snapshot"],
+                    "last_run": status["last_run"],
+                    "pending_outbox": status["pending_outbox"],
+                }
+            )
+        return result
+
     def latest_snapshot(self, monitor_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
             """
@@ -163,6 +206,123 @@ class Storage:
             "diagnostics": json.loads(row["diagnostics_json"]),
         }
 
+    def _snapshot_by_id(self, snapshot_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            """
+            SELECT snapshot_id, monitor_id, created_at, item_count, snapshot_hash,
+                   items_json, diagnostics_json
+              FROM snapshots WHERE snapshot_id=? AND verified=1
+            """,
+            (snapshot_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "snapshot_id": row["snapshot_id"],
+            "monitor_id": row["monitor_id"],
+            "created_at": row["created_at"],
+            "item_count": row["item_count"],
+            "snapshot_hash": row["snapshot_hash"],
+            "items": [InventoryItem.model_validate(item) for item in json.loads(row["items_json"])],
+            "diagnostics": json.loads(row["diagnostics_json"]),
+        }
+
+    def list_runs(
+        self,
+        monitor_id: str,
+        *,
+        date: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        self.get_manifest(monitor_id)
+        parameters: list[Any] = [monitor_id]
+        where = "monitor_id=?"
+        if date:
+            where += " AND local_date=?"
+            parameters.append(date)
+        parameters.append(limit)
+        rows = self.conn.execute(
+            f"""
+            SELECT run_id, monitor_id, trigger_name, status, local_date, started_at,
+                   finished_at, state_modified, snapshot_id
+              FROM runs WHERE {where}
+             ORDER BY finished_at DESC, rowid DESC LIMIT ?
+            """,
+            parameters,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        row = self.conn.execute(
+            """
+            SELECT run_id, monitor_id, trigger_name, idempotency_key, status, local_date,
+                   started_at, finished_at, state_modified, snapshot_id, result_json
+              FROM runs WHERE run_id=?
+            """,
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise ConfigError(f"运行记录不存在: {run_id}")
+        result = json.loads(row["result_json"])
+        return {
+            **{key: row[key] for key in row.keys() if key != "result_json"},
+            "result": result,
+        }
+
+    @staticmethod
+    def _item_from_change(value: dict[str, Any]) -> InventoryItem:
+        allowed = set(InventoryItem.model_fields)
+        return InventoryItem.model_validate({key: item for key, item in value.items() if key in allowed})
+
+    def items_for_run(self, run_id: str, *, changes_only: bool) -> tuple[dict[str, Any], list[InventoryItem]]:
+        run = self.get_run(run_id)
+        diff = run["result"].get("diff") or {"added": [], "removed": [], "modified": []}
+        if changes_only and any(diff.values()):
+            items: list[InventoryItem] = []
+            items.extend(self._item_from_change(value) for value in diff.get("added", []))
+            items.extend(self._item_from_change(value) for value in diff.get("removed", []))
+            items.extend(
+                self._item_from_change(value["after"])
+                for value in diff.get("modified", [])
+            )
+            unique = {item.stable_id: item for item in items}
+            return run, [unique[key] for key in sorted(unique)]
+        snapshot_id = run.get("snapshot_id")
+        snapshot = self._snapshot_by_id(snapshot_id) if snapshot_id else None
+        return run, [] if snapshot is None else snapshot["items"]
+
+    def get_event(self, event_id: str) -> dict[str, Any]:
+        row = self.conn.execute(
+            "SELECT * FROM outbox WHERE event_id=?",
+            (event_id,),
+        ).fetchone()
+        if row is None:
+            raise ConfigError(f"Outbox 事件不存在: {event_id}")
+        return {
+            **{
+                key: row[key]
+                for key in row.keys()
+                if key not in {"payload_json", "delivery_error_json"}
+            },
+            "payload": json.loads(row["payload_json"]),
+            "delivery_error": (
+                json.loads(row["delivery_error_json"])
+                if row["delivery_error_json"]
+                else None
+            ),
+        }
+
+    def items_for_event(self, event_id: str) -> tuple[dict[str, Any], list[InventoryItem]]:
+        event = self.get_event(event_id)
+        change = event["payload"].get("change")
+        if not change:
+            return event, []
+        if event["event_type"] == "inventory.modified":
+            value = change["after"]
+        else:
+            value = change
+        return event, [self._item_from_change(value)]
+
     def existing_run(self, idempotency_key: str) -> dict[str, Any] | None:
         row = self.conn.execute(
             "SELECT run_id, status, result_json FROM runs WHERE idempotency_key=?", (idempotency_key,)
@@ -179,6 +339,7 @@ class Storage:
         items: list[InventoryItem],
         snapshot_hash: str,
         diagnostics: dict[str, Any],
+        local_date: str,
     ) -> str:
         snapshot_id = str(uuid.uuid4())
         now = utc_now()
@@ -203,10 +364,20 @@ class Storage:
             self.conn.execute(
                 """
                 INSERT INTO runs(run_id, monitor_id, trigger_name, idempotency_key, status,
-                                 started_at, finished_at, state_modified, snapshot_id, result_json)
-                VALUES (?, ?, 'baseline', ?, 'BASELINE_CREATED', ?, ?, 1, ?, ?)
+                                 started_at, finished_at, state_modified, snapshot_id, result_json,
+                                 local_date)
+                VALUES (?, ?, 'baseline', ?, 'BASELINE_CREATED', ?, ?, 1, ?, ?, ?)
                 """,
-                (run_id, monitor_id, f"baseline:{run_id}", now, now, snapshot_id, json_dumps(result)),
+                (
+                    run_id,
+                    monitor_id,
+                    f"baseline:{run_id}",
+                    now,
+                    now,
+                    snapshot_id,
+                    json_dumps(result),
+                    local_date,
+                ),
             )
         return snapshot_id
 
@@ -217,6 +388,7 @@ class Storage:
         run_id: str,
         trigger: str,
         idempotency_key: str,
+        local_date: str,
         status: str,
         items: list[InventoryItem],
         snapshot_hash: str,
@@ -247,10 +419,22 @@ class Storage:
             self.conn.execute(
                 """
                 INSERT INTO runs(run_id, monitor_id, trigger_name, idempotency_key, status,
-                                 started_at, finished_at, state_modified, snapshot_id, result_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                                 started_at, finished_at, state_modified, snapshot_id, result_json,
+                                 local_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                 """,
-                (run_id, monitor_id, trigger, idempotency_key, status, now, now, snapshot_id, json_dumps(result)),
+                (
+                    run_id,
+                    monitor_id,
+                    trigger,
+                    idempotency_key,
+                    status,
+                    now,
+                    now,
+                    snapshot_id,
+                    json_dumps(result),
+                    local_date,
+                ),
             )
             self._insert_changes(run_id, diff)
             self._insert_events(monitor_id, run_id, events)
@@ -263,6 +447,7 @@ class Storage:
         run_id: str,
         trigger: str,
         idempotency_key: str,
+        local_date: str,
         error: dict[str, Any],
     ) -> None:
         now = utc_now()
@@ -277,10 +462,20 @@ class Storage:
             self.conn.execute(
                 """
                 INSERT INTO runs(run_id, monitor_id, trigger_name, idempotency_key, status,
-                                 started_at, finished_at, state_modified, snapshot_id, result_json)
-                VALUES (?, ?, ?, ?, 'INVALID', ?, ?, 0, NULL, ?)
+                                 started_at, finished_at, state_modified, snapshot_id, result_json,
+                                 local_date)
+                VALUES (?, ?, ?, ?, 'INVALID', ?, ?, 0, NULL, ?, ?)
                 """,
-                (run_id, monitor_id, trigger, idempotency_key, now, now, json_dumps(result)),
+                (
+                    run_id,
+                    monitor_id,
+                    trigger,
+                    idempotency_key,
+                    now,
+                    now,
+                    json_dumps(result),
+                    local_date,
+                ),
             )
             self._insert_events(monitor_id, run_id, [event])
 
@@ -334,7 +529,7 @@ class Storage:
             (monitor_id,),
         ).fetchone()
         pending = self.conn.execute(
-            "SELECT COUNT(*) FROM outbox WHERE monitor_id=? AND status='pending'", (monitor_id,)
+            "SELECT COUNT(*) FROM outbox WHERE monitor_id=? AND status!='verified'", (monitor_id,)
         ).fetchone()[0]
         return {
             "manifest": manifest.model_dump(mode="json"),
@@ -354,26 +549,77 @@ class Storage:
         self.get_manifest(monitor_id)
         rows = self.conn.execute(
             """
-            SELECT event_id, run_id, event_type, payload_json, status, dedupe_key, created_at, acknowledged_at
+            SELECT event_id, run_id, event_type, payload_json, status, dedupe_key, created_at,
+                   acknowledged_at, provider, external_message_id, delivered_at,
+                   delivery_verified, delivery_error_json
             FROM outbox WHERE monitor_id=? ORDER BY created_at, rowid
             """,
             (monitor_id,),
         ).fetchall()
         return [
             {
-                **{key: row[key] for key in row.keys() if key != "payload_json"},
+                **{
+                    key: row[key]
+                    for key in row.keys()
+                    if key not in {"payload_json", "delivery_error_json"}
+                },
                 "payload": json.loads(row["payload_json"]),
+                "delivery_error": (
+                    json.loads(row["delivery_error_json"])
+                    if row["delivery_error_json"]
+                    else None
+                ),
             }
             for row in rows
         ]
 
-    def ack_outbox(self, event_id: str) -> bool:
+    def ack_outbox(
+        self,
+        event_id: str,
+        *,
+        provider: str | None,
+        external_message_id: str | None,
+        delivered_at: str | None,
+        verified: bool,
+        delivery_error: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], bool]:
+        current = self.get_event(event_id)
+        if verified and not external_message_id:
+            raise ConfigError("verified=true 时必须提供 external_message_id")
+        if (
+            current["status"] == "verified"
+            and current["external_message_id"] == external_message_id
+            and verified
+        ):
+            return current, False
+        status = (
+            "failed"
+            if delivery_error
+            else "verified"
+            if verified
+            else "sent_unverified"
+        )
+        acknowledged_at = utc_now()
         with self.conn:
-            cursor = self.conn.execute(
-                "UPDATE outbox SET status='acknowledged', acknowledged_at=? WHERE event_id=? AND status!='acknowledged'",
-                (utc_now(), event_id),
+            self.conn.execute(
+                """
+                UPDATE outbox
+                   SET status=?, acknowledged_at=?, provider=?, external_message_id=?,
+                       delivered_at=?, delivery_verified=?, delivery_error_json=?
+                 WHERE event_id=?
+                """,
+                (
+                    status,
+                    acknowledged_at,
+                    provider,
+                    external_message_id,
+                    delivered_at,
+                    int(verified and not delivery_error),
+                    json_dumps(delivery_error) if delivery_error else None,
+                    event_id,
+                ),
             )
-        return cursor.rowcount > 0
+        return self.get_event(event_id), True
 
     def apply_runtime_results(self, monitor_id: str, results: list[RuntimeActionResult]) -> None:
         now = utc_now()

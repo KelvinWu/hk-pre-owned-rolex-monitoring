@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping
 
@@ -16,6 +16,7 @@ from .errors import (
     SourceAuthRequired,
     SourceAutomationProhibited,
     SourceLicenseNotConfirmed,
+    SourcePolicyStale,
     SourceRateLimited,
     SourceSchemaChanged,
     SourceTermsReviewRequired,
@@ -23,8 +24,9 @@ from .errors import (
 from .models import MarketObservation, MarketPacket
 
 
-SOURCE_REGISTRY_VERSION = 2
+SOURCE_REGISTRY_VERSION = 3
 SOURCE_POLICY_CHECKED_AT = "2026-07-13"
+SOURCE_POLICY_REVIEW_DAYS = 90
 
 
 MARKET_SOURCES: dict[str, dict[str, Any]] = {
@@ -238,9 +240,22 @@ MARKET_SOURCES: dict[str, dict[str, Any]] = {
 
 def market_sources() -> list[dict[str, Any]]:
     return [
-        {"source": source, **definition}
+        {
+            "source": source,
+            **definition,
+            "review_due_at": _review_due_at(definition).isoformat()
+            if _review_due_at(definition)
+            else None,
+        }
         for source, definition in sorted(MARKET_SOURCES.items())
     ]
+
+
+def _review_due_at(policy: Mapping[str, Any]) -> date | None:
+    checked_at = policy.get("terms", {}).get("checked_at")
+    if not checked_at:
+        return None
+    return date.fromisoformat(str(checked_at)) + timedelta(days=SOURCE_POLICY_REVIEW_DAYS)
 
 
 def source_definition(source: str) -> dict[str, Any]:
@@ -253,6 +268,7 @@ def diagnose_source(
     mode: str,
     intended_use: str,
     environ: Mapping[str, str] | None = None,
+    today: date | None = None,
 ) -> dict[str, Any]:
     if source not in MARKET_SOURCES:
         raise ConfigError(f"未知行情来源: {source}", details={"source": source})
@@ -267,10 +283,18 @@ def diagnose_source(
     warnings: list[str] = []
     source_status = "SOURCE_READY"
     ready = True
+    review_due_at = _review_due_at(policy)
+    policy_stale = bool(review_due_at and (today or date.today()) > review_due_at)
 
     if mode == "manual":
         ready = bool(policy["manual_evidence_supported"])
         source_status = "MANUAL_EVIDENCE_READY" if ready else "SOURCE_MANUAL_EVIDENCE_UNSUPPORTED"
+        if policy_stale:
+            warnings.append("来源政策复核日期已过；人工证据仍须由使用者重新确认用途与条款。")
+    elif policy_stale:
+        ready = False
+        source_status = "SOURCE_POLICY_STALE"
+        warnings.append("来源政策复核日期已过，自动访问保持关闭，需重新核验官方条款。")
     elif policy["automation_status"] == "PROHIBITED_WITHOUT_WRITTEN_PERMISSION":
         ready = False
         source_status = "SOURCE_AUTOMATION_PROHIBITED"
@@ -312,6 +336,8 @@ def diagnose_source(
         "adapter_status": policy["adapter_status"],
         "manual_evidence_supported": policy["manual_evidence_supported"],
         "terms": policy["terms"],
+        "review_due_at": review_due_at.isoformat() if review_due_at else None,
+        "policy_stale": policy_stale,
         "warnings": warnings,
         "credentials_present": bool(policy["credential_env"]) and not any(
             name in missing for name in policy["credential_env"]
@@ -347,7 +373,7 @@ class WatchChartsCollector:
             base_url=self.base_url,
             timeout=timeout,
             follow_redirects=True,
-            headers={"User-Agent": "HKPreOwnedRolexMonitoring/0.1 (official WatchCharts API)"},
+            headers={"User-Agent": "HKPreOwnedRolexMonitoring/0.2 (official WatchCharts API)"},
         )
 
     def collect(
@@ -489,6 +515,8 @@ class WatchChartsCollector:
             raise SourceLicenseNotConfirmed("WatchCharts license 未确认或不足", details=details)
         if status == "SOURCE_AUTOMATION_PROHIBITED":
             raise SourceAutomationProhibited("来源不允许默认自动采集", details=details)
+        if status == "SOURCE_POLICY_STALE":
+            raise SourcePolicyStale("来源政策复核日期已过，自动访问保持关闭", details=details)
         raise SourceTermsReviewRequired("来源条款尚未完成审查", details=details)
 
     def _get_json(

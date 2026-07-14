@@ -22,6 +22,7 @@ def build_runtime_plan(manifest: MonitorManifest) -> RuntimePlan:
                 parameters={
                     "cron": job.cron,
                     "timezone": manifest.schedule.timezone,
+                    "retry_delays_seconds": manifest.validation.retry_delays_seconds,
                     "invocation": {
                         "skill": "hk-pre-owned-rolex-monitoring",
                         "command": [
@@ -53,7 +54,20 @@ def build_runtime_plan(manifest: MonitorManifest) -> RuntimePlan:
                 "monitor.invalid",
             ],
             list_command=["outbox", "list", "--id", manifest.monitor_id, "--json"],
-            ack_command=["outbox", "ack", "--event-id", "<event_id>", "--json"],
+            ack_command=[
+                "outbox",
+                "ack",
+                "--event-id",
+                "<event_id>",
+                "--provider",
+                "<provider>",
+                "--external-message-id",
+                "<external_message_id>",
+                "--delivered-at",
+                "<ISO-8601>",
+                "--verified",
+                "--json",
+            ],
         ),
         requirements=RuntimeRequirements(
             scheduler=bool(manifest.schedule.jobs),

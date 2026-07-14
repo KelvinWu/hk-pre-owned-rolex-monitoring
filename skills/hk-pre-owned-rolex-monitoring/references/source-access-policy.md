@@ -11,7 +11,7 @@ inventoryctl market sources --json
 inventoryctl market source doctor --source <source> --mode <automatic|manual> --usage <internal|public_display|resale> --json
 ```
 
-`market sources` 返回 `automation_status`、`adapter_status`、凭证环境变量名、license 环境变量名、条款 URL、`checked_at`、速率与存储边界。它永远不返回 Secret 值。
+`market sources` 返回 `automation_status`、`adapter_status`、凭证环境变量名、license 环境变量名、条款 URL、`checked_at`、`review_due_at`、速率与存储边界。它永远不返回 Secret 值。
 
 `source doctor` 不发起网络请求、不消耗 API credits，也不证明用户输入的 license 声明真实。它只判断当前来源政策、凭证存在性和用户声明的用途是否满足运行前提。
 
@@ -31,6 +31,7 @@ inventoryctl market source doctor --source <source> --mode <automatic|manual> --
 - `SOURCE_LICENSE_NOT_CONFIRMED`：缺少 license 声明，或声明不足以覆盖 `public_display` / `resale`。
 - `SOURCE_AUTOMATION_PROHIBITED`：默认自动访问被来源政策阻止。
 - `SOURCE_TERMS_REVIEW_REQUIRED`：来源尚未完成自动化条款审查。
+- `SOURCE_POLICY_STALE`：距离 `checked_at` 已超过 90 天；自动访问失败关闭，必须重新核验官方条款并更新注册表。
 - `SOURCE_RATE_LIMITED`：正式 API 达到频率或 credits 限制。
 - `SOURCE_API_ACCESS_DENIED`：正式 API 拒绝访问；检查 key、订阅级别和 credits。
 - `SOURCE_SCHEMA_CHANGED`：正式接口结构不符合已验证契约，结果不得进入 Market Packet。

@@ -30,6 +30,18 @@ def test_result_envelope_public_contract_is_stable() -> None:
         "result": {"human_summary_zh": {"headline": "发现变化。", "changes": []}},
         "warnings": ["图片缓存失败，不影响库存结果。"],
         "error": None,
+        "next_actions": [
+            {
+                "action": "生成可交付报告",
+                "command": ["report", "build", "--run-id", "run-1", "--json"],
+                "condition": "向用户展示本次变化",
+            },
+            {
+                "action": "读取待发送事件",
+                "command": ["outbox", "list", "--id", "monitor-1", "--json"],
+                "condition": "宿主具备通知能力",
+            },
+        ],
     }
 
 
@@ -78,11 +90,18 @@ def test_skill_info_public_contract_is_stable() -> None:
             "version": __version__,
             "manifest_schema_version": 1,
             "market_packet_schema_version": 1,
-            "market_source_registry_version": 2,
-            "state_schema_version": 1,
+            "market_source_registry_version": 3,
+            "state_schema_version": 2,
             "platform_neutral": True,
             "host_actions_executed": False,
         },
         "warnings": [],
         "error": None,
+        "next_actions": [
+            {
+                "action": "检查运行环境",
+                "command": ["runtime", "probe", "--json"],
+                "condition": "首次使用或运行环境发生变化",
+            }
+        ],
     }

@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version", "ok", "operation", "status", "skill_version",
-    "monitor_id", "run_id", "state_modified", "result", "warnings", "error"
+    "monitor_id", "run_id", "state_modified", "result", "warnings", "error", "next_actions"
   ],
   "properties": {
     "schema_version": {"const": 1},
@@ -21,6 +21,19 @@
     "state_modified": {"type": "boolean"},
     "result": {"type": "object"},
     "warnings": {"type": "array", "items": {"type": "string"}},
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "command", "condition"],
+        "properties": {
+          "action": {"type": "string", "minLength": 1},
+          "command": {"type": "array", "items": {"type": "string"}},
+          "condition": {"type": "string", "minLength": 1}
+        }
+      }
+    },
     "error": {
       "anyOf": [
         {"type": "null"},
